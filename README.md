@@ -34,6 +34,7 @@ relative to the post file).
 | --- | --- | --- |
 | `SITE_URL` | `https://jbrio.net` | Base URL used to build the post link (`<SITE_URL>/posts/<slug>/`). |
 | `DEPLOYMENT_DELAY_MS` | `60000` | Delay before posting, to let a deploy finish propagating. |
+| `SOCIAL_NETWORKS` | _(unset → all)_ | Restrict posting to a subset of networks. Comma/space-separated, case-insensitive (`x` aliases `twitter`), e.g. `mastodon,twitter`. Unknown names are ignored with a warning. Useful for re-announcing to only the networks that failed a previous run, without duplicating the ones that succeeded. |
 
 Credentials (each network is skipped if its vars are unset):
 

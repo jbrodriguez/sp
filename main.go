@@ -166,6 +166,10 @@ func main() {
 	fmt.Println("Processing new files:", files)
 
 	siteURL := envOr("SITE_URL", "https://jbrio.net")
+	nets := allowedNetworks()
+	if raw := os.Getenv("SOCIAL_NETWORKS"); strings.TrimSpace(raw) != "" {
+		fmt.Printf("Announce restricted to networks: %s\n", raw)
+	}
 	delayMS, _ := strconv.Atoi(envOr("DEPLOYMENT_DELAY_MS", "60000"))
 	if delayMS > 0 {
 		fmt.Printf("\n⏳ Waiting %d seconds for deployment to complete...\n", delayMS/1000)
@@ -200,12 +204,13 @@ func main() {
 		fmt.Printf("   URL: %s\n", postURL)
 		fmt.Printf("   Tags: %s\n", orNone(strings.Join(fm.Tags, ", ")))
 
-		postAll(fm, postURL, path)
+		postAll(fm, postURL, path, nets)
 	}
 }
 
-// postAll attempts each network gated on its credentials and prints a summary.
-func postAll(fm *Frontmatter, postURL, postPath string) {
+// postAll attempts each network gated on the allowlist and its credentials,
+// then prints a summary.
+func postAll(fm *Frontmatter, postURL, postPath string, nets map[string]bool) {
 	type result struct {
 		name string
 		err  error
@@ -214,7 +219,7 @@ func postAll(fm *Frontmatter, postURL, postPath string) {
 	var results []result
 
 	// Bluesky
-	if id, pw := os.Getenv("BLUESKY_IDENTIFIER"), os.Getenv("BLUESKY_PASSWORD"); id != "" && pw != "" {
+	if id, pw := os.Getenv("BLUESKY_IDENTIFIER"), os.Getenv("BLUESKY_PASSWORD"); enabled(nets, "bluesky") && id != "" && pw != "" {
 		content := formatContent(fm, postURL, limitBluesky)
 		fmt.Println("Posting to BlueSky:", content)
 		err := NewBsky(id, pw).Post(content, buildFallbackEmbed(fm, postPath))
@@ -223,7 +228,7 @@ func postAll(fm *Frontmatter, postURL, postPath string) {
 	}
 
 	// Mastodon
-	if url, tok := os.Getenv("MASTODON_INSTANCE_URL"), os.Getenv("MASTODON_ACCESS_TOKEN"); url != "" && tok != "" {
+	if url, tok := os.Getenv("MASTODON_INSTANCE_URL"), os.Getenv("MASTODON_ACCESS_TOKEN"); enabled(nets, "mastodon") && url != "" && tok != "" {
 		content := formatContent(fm, postURL, limitMastodon)
 		fmt.Println("Posting to Mastodon:", content)
 		err := NewMastodon(url, tok).Post(content)
@@ -232,7 +237,7 @@ func postAll(fm *Frontmatter, postURL, postPath string) {
 	}
 
 	// Twitter / X
-	if k, s := os.Getenv("TWITTER_API_KEY"), os.Getenv("TWITTER_API_SECRET"); k != "" && s != "" &&
+	if k, s := os.Getenv("TWITTER_API_KEY"), os.Getenv("TWITTER_API_SECRET"); enabled(nets, "twitter") && k != "" && s != "" &&
 		os.Getenv("TWITTER_ACCESS_TOKEN") != "" && os.Getenv("TWITTER_ACCESS_SECRET") != "" {
 		content := formatContent(fm, postURL, limitTwitter)
 		fmt.Println("Posting to Twitter:", content)
@@ -261,6 +266,41 @@ func logResult(name string, err error) {
 		return
 	}
 	fmt.Printf("✅ %s post successful\n", name)
+}
+
+// knownNetworks is the set of networks sp can post to. Used to flag typos in
+// SOCIAL_NETWORKS rather than silently posting nowhere.
+var knownNetworks = map[string]bool{"bluesky": true, "mastodon": true, "twitter": true}
+
+// allowedNetworks parses SOCIAL_NETWORKS (comma/space-separated,
+// case-insensitive; "x" aliases "twitter") into the set of networks to post to.
+// It returns nil when the variable is unset/empty, meaning "no filter — post to
+// all networks that have credentials".
+func allowedNetworks() map[string]bool {
+	if strings.TrimSpace(os.Getenv("SOCIAL_NETWORKS")) == "" {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, f := range strings.FieldsFunc(os.Getenv("SOCIAL_NETWORKS"), func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\n' || r == '\t'
+	}) {
+		name := strings.ToLower(f)
+		if name == "x" {
+			name = "twitter"
+		}
+		if !knownNetworks[name] {
+			fmt.Printf("⚠️  Ignoring unknown network in SOCIAL_NETWORKS: %q (known: bluesky, mastodon, twitter)\n", f)
+			continue
+		}
+		set[name] = true
+	}
+	return set
+}
+
+// enabled reports whether network name should be posted to. A nil set means no
+// filter (all networks enabled).
+func enabled(set map[string]bool, name string) bool {
+	return set == nil || set[name]
 }
 
 func envOr(key, def string) string {

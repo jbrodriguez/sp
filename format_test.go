@@ -54,3 +54,52 @@ func TestSlugFromPath(t *testing.T) {
 		t.Fatalf("got %q, want 202545", got)
 	}
 }
+
+func TestAllowedNetworks(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want map[string]bool // nil == no filter (all)
+	}{
+		{"unset is all", "", nil},
+		{"whitespace is all", "   ", nil},
+		{"single", "mastodon", map[string]bool{"mastodon": true}},
+		{"comma list", "bluesky,mastodon", map[string]bool{"bluesky": true, "mastodon": true}},
+		{"space, case and x alias", "Bluesky X", map[string]bool{"bluesky": true, "twitter": true}},
+		{"unknown dropped", "mastodon,bogus", map[string]bool{"mastodon": true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SOCIAL_NETWORKS", tt.env)
+			if got := allowedNetworks(); !sameSet(got, tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEnabled(t *testing.T) {
+	if !enabled(nil, "bluesky") {
+		t.Fatal("nil set should enable every network")
+	}
+	set := map[string]bool{"mastodon": true}
+	if enabled(set, "bluesky") {
+		t.Fatal("bluesky absent from set should be disabled")
+	}
+	if !enabled(set, "mastodon") {
+		t.Fatal("mastodon present in set should be enabled")
+	}
+}
+
+// sameSet treats nil and empty as equal (both mean "no networks selected").
+func sameSet(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
